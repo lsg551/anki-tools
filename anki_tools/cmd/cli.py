@@ -14,6 +14,7 @@ from typing import Any, NoReturn, override
 from anki.errors import AnkiException, Interrupted
 
 from anki_tools.cmd import build, diff, dump, inspect
+from anki_tools.cmd.manpage import InstallManPages
 from anki_tools.lib.errors import AnkiToolsError
 
 EXIT_ERROR = 1
@@ -67,19 +68,28 @@ class _PrintVersion(argparse.Action):
         parser.exit()
 
 
-def build_parser() -> argparse.ArgumentParser:
+def build_parser(*, with_version: bool = True) -> argparse.ArgumentParser:
     """Build the top-level argument parser."""
     parser = _Parser(
         prog="anki-tools",
         description="Inspect and convert Anki deck packages.",
     )
+    if with_version:
+        parser.add_argument(
+            "--version",
+            action=_PrintVersion,
+            nargs=0,
+            help="show the anki-tools and anki versions and exit",
+        )
     parser.add_argument(
-        "--version",
-        action=_PrintVersion,
+        "--install-man-pages",
+        action=InstallManPages,
         nargs=0,
-        help="show the anki-tools and anki versions and exit",
+        help=argparse.SUPPRESS,
     )
-    subparsers = parser.add_subparsers(dest="command", required=True, metavar="COMMAND")
+    subparsers = parser.add_subparsers(
+        dest="command", required=True, metavar="COMMAND", title="commands"
+    )
     dump.register(subparsers)
     build.register(subparsers)
     diff.register(subparsers)

@@ -1,0 +1,266 @@
+.TH ANKI\-TOOLS "1" "2026\-11\-08" "anki\-tools" "anki\-tools"
+.SH NAME
+anki\-tools \- version control for Anki deck packages
+.SH SYNOPSIS
+.B anki\-tools
+[-h] COMMAND ...
+.SH DESCRIPTION
+\fBanki\-tools\fR is for collaborating on Anki decks in version control. A
+deck is normally a binary package (.apkg), so git cannot show what changed or
+merge two versions. \fBanki\-tools\fR converts a deck to plain text files
+instead, which diff and merge like any other source. \fBdump\fR writes the
+text, \fBdiff\fR compares two versions, and \fBbuild\fR recreates a package.
+.PP
+Reach for it when a deck is shared between people, or published from a
+repository, where every change becomes a review, and CI can build the .apkg to
+ship. The intended cycle is in \fBWORKFLOW\fR below.
+
+.SH
+COMMANDS
+.SS \fBanki\-tools dump\fR
+extract a deck package into a dump
+
+usage: anki\-tools dump [options] PACKAGE
+
+Extract a deck package into a dump (directory or .zip).
+
+arguments:
+.RS 7
+.TP
+\fBpackage\fR
+path to an .apkg file
+.RE
+
+
+options:
+.RS 7
+.TP
+\fB\-o\fR \fI\,OUTPUT\/\fR, \fB\-\-output\fR \fI\,OUTPUT\/\fR
+output directory or file ("\-" for stdout)
+
+.TP
+\fB\-f\fR \fI\,{jsonl,zip}\/\fR, \fB\-\-format\fR \fI\,{jsonl,zip}\/\fR
+output format (default: inferred from the output path)
+.RE
+
+
+export options
+.RS 7
+.TP
+\fB\-q\fR \fI\,QUERY\/\fR, \fB\-\-query\fR \fI\,QUERY\/\fR
+Anki search selecting which notes to include
+
+.TP
+\fB\-\-with\-deck\-configs\fR
+include deck presets
+
+.TP
+\fB\-\-no\-media\fR
+exclude media files
+.RE
+
+.SS \fBanki\-tools build\fR
+build an .apkg from a dump
+
+usage: anki\-tools build [options] SOURCE
+
+Build a deck package from a dump (directory or .zip).
+
+arguments:
+.RS 7
+.TP
+\fBsource\fR
+dump directory or file ("\-" for stdin)
+.RE
+
+
+options:
+.RS 7
+.TP
+\fB\-o\fR \fI\,OUTPUT\/\fR, \fB\-\-output\fR \fI\,OUTPUT\/\fR
+output .apkg path ("\-" for stdout)
+
+.TP
+\fB\-f\fR \fI\,{jsonl,zip}\/\fR, \fB\-\-format\fR \fI\,{jsonl,zip}\/\fR
+input format (default: inferred from the source path)
+.RE
+
+.SS \fBanki\-tools diff\fR
+compare two packages or dumps
+
+usage: anki\-tools diff [options] OLD NEW
+
+Compare two packages or dumps and print a unified diff. Exit codes follow the diff utility: 0 when they match, 1 when they differ, 2 on an error. A dump records the export options it was made with; the two inputs must agree on them, or the diff would report scope and preset differences as content changes. The export options only affect how a package is read; \-e/\-\-exclude drops a section from the comparison itself and works for any input.
+
+arguments:
+.RS 7
+.TP
+\fBold\fR
+baseline package, dump or "\-"
+
+.TP
+\fBnew\fR
+changed package, dump or "\-"
+.RE
+
+
+options:
+.RS 7
+.TP
+\fB\-f\fR \fI\,{text,markdown}\/\fR, \fB\-\-format\fR \fI\,{text,markdown}\/\fR
+output format (default: text)
+
+.TP
+\fB\-o\fR \fI\,OUTPUT\/\fR, \fB\-\-output\fR \fI\,OUTPUT\/\fR
+output file ("\-" for stdout)
+
+.TP
+\fB\-e\fR \fI\,SECTION\/\fR, \fB\-\-exclude\fR \fI\,SECTION\/\fR
+section to drop from the diff (repeatable: notetypes, decks, deck_configs,
+notes, media)
+
+.TP
+\fB\-\-color\fR, \fB\-\-no\-color\fR
+colourise text output (default: auto)
+.RE
+
+
+export options
+.RS 7
+.TP
+\fB\-q\fR \fI\,QUERY\/\fR, \fB\-\-query\fR \fI\,QUERY\/\fR
+Anki search selecting which notes to include
+
+.TP
+\fB\-\-with\-deck\-configs\fR
+include deck presets
+
+.TP
+\fB\-\-no\-media\fR
+exclude media files
+.RE
+
+.SS \fBanki\-tools inspect\fR
+summarize a deck package
+
+usage: anki\-tools inspect [options] PACKAGE
+
+Summarize a deck package.
+
+arguments:
+.RS 7
+.TP
+\fBpackage\fR
+path to an .apkg file
+.RE
+
+
+options:
+.RS 7
+.TP
+\fB\-f\fR \fI\,{text,json}\/\fR, \fB\-\-format\fR \fI\,{text,json}\/\fR
+output format (default: text)
+.RE
+
+.SH WORKFLOW
+A dump is a generated artifact, not an editing surface. Your Anki collection
+is the source of truth.
+.IP "1." 4
+Change the deck in Anki and export an .apkg.
+.IP "2." 4
+Run \fBanki\-tools dump deck.apkg \-o deck/\fR and commit the text.
+.IP "3." 4
+Review and merge the dump in git like any other text.
+.IP "4." 4
+Let CI run \fBanki\-tools build deck/ \-o deck.apkg\fR to produce the release
+package.
+.PP
+The text format exists so changes are reviewable and mergeable, not so you
+author content in it. To change what a card says, change it in Anki and dump
+again.
+.PP
+\fBbuild\fR either reproduces a dump exactly or fails with a message; it never
+silently renames, collapses or drops content. A dump that a git merge produced
+by hand is the case this protects you from: if \fBbuild\fR refuses one, fix the
+duplicate name or reference in Anki and dump again.
+.PP
+Where the source .apkg lives, whether committed, a release asset or nowhere at
+all, is up to you. anki\-tools does not care.
+.PP
+A dump is written to a staging directory beside the target and published only
+once it is complete, so an interrupted dump leaves the previous dump in place
+rather than a truncated file. Only a hard kill (SIGKILL) can leave a hidden
+\&.dump.XXXX staging directory behind, and it is safe to delete.
+.PP
+Publishing replaces the dump's own files and its media/ directory. Anything
+else you keep in that directory is left alone.
+.SH NOTES
+A dump carries every option Anki stores for note types, decks, presets and
+notes (field fonts and sizes, template browser formats, deck descriptions), so
+a rebuilt package keeps them.
+.PP
+The export options only affect how a package is read. \fB\-e/\-\-exclude\fR
+drops a section from the comparison itself and works for any input, so
+\fB\-e media\fR is how you ignore media differences, including between two
+dumps. \fB\-\-no\-media\fR has no effect when both inputs are dumps.
+.SH EXAMPLES
+.RS 4
+.nf
+anki\-tools dump deck.apkg \-o deck/                    # canonical, diffable
+anki\-tools dump deck.apkg > deck.zip                  # single\-file archive
+anki\-tools dump deck.apkg \-o deck/ \-q 'deck:Latein'   # select a subset
+anki\-tools build deck/ \-o deck.apkg
+anki\-tools build deck.zip \-o \- > deck.apkg           # to stdout
+anki\-tools diff old.apkg new.apkg
+anki\-tools diff old/ new.apkg \-f markdown
+anki\-tools inspect deck.apkg \-\-format json
+.fi
+.RE
+.SH CAVEATS
+.IP \(bu 4
+\fBIdentity is by name.\fR Decks, note types, presets and media files are
+matched by name when a package is imported into Anki, so renaming one in Anki
+reads as one name disappearing and another appearing: users who import the
+rebuilt package get a duplicate plus an orphan. Two entities with the same name
+cannot be told apart, so \fBdump\fR and \fBbuild\fR refuse a package or dump
+that has duplicate deck, note type, preset or media names instead of merging
+them.
+.IP \(bu 4
+\fBThe built\-in Default preset and the empty Default deck are not dumped.\fR
+A package is imported into a fresh collection, which always has both, so they
+are not content. Anki's own exporter behaves the same: it drops empty decks and
+never round\-trips the built\-in preset's settings.
+.IP \(bu 4
+\fBBuilds are not byte\-reproducible.\fR Import rewrites deck and stock note
+type IDs and stamps timestamps, so two builds of the same dump differ in bytes
+even though the content is identical. Therefore always compare dumps, not
+\&.apkg bytes.
+.IP \(bu 4
+\fBScheduling information is not part of a dump.\fR dump and build are
+content\-only: card scheduling (due, interval, reviews), the review log, and
+deck\-level scheduling and UI state (per\-deck limits, today's counters,
+collapsed state) are never included. This is deliberate: it changes on every
+review, so storing it would make every dump churn and defeat diffing. Anki's
+export option to include scheduling is therefore not mirrored by dump, and
+inspect reports whether a package carries personal learning state.
+.IP \(bu 4
+\fBNotes with no cards are not rebuilt.\fR If all of a note's cards were
+deleted in Anki, the note stays in the dump but is skipped on build, because
+Anki cannot create a note without cards. dump warns when this happens.
+.IP \(bu 4
+\fBMedia is the only binary part of a dump\fR (stored as files under media/, or
+inside the .zip archive). Everything else is text. A dump keeps the media Anki's
+exporter would keep: files referenced by note fields, plus the _\-prefixed files
+a note type uses in its templates or CSS. Images referenced from a template or
+a deck description without that prefix are not exported by Anki either, so they
+are not part of a dump.
+
+.SH AUTHOR
+.nf
+Luis Schulte
+.fi
+
+.SH DISTRIBUTION
+The latest version of anki\-tools may be downloaded from
+.UR https://github.com/lsg551/anki\-tools
+.UE

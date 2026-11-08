@@ -34,6 +34,7 @@ dependencies = [
 
 [package.dev-dependencies]
 dev = [
+    { name = "argparse-manpage" },
     { name = "pytest" },
     { name = "pytest-cov" },
     { name = "ruff" },
@@ -48,11 +49,18 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "argparse-manpage", specifier = ">=4.8" },
     { name = "pytest", specifier = ">=9.2.0" },
     { name = "pytest-cov", specifier = ">=7.1.0" },
     { name = "ruff", specifier = ">=0.17.3" },
     { name = "ty", specifier = ">=0.0.95" },
 ]
+
+[[package]]
+name = "argparse-manpage"
+version = "4.8"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/93/1d/7cad52af343d6445fdfff5dfc603259ea4404f9cd55e30f2d0699a3b2836/argparse_manpage-4.8.tar.gz", hash = "sha256:d55ce1c246479ddd82871170a8cc543a6831bb68c87a298e47f0663a9330b74f", size = 59211, upload-time = "2026-10-14T08:40:44.822Z" }
 
 [[package]]
 name = "certifi"

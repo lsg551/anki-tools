@@ -25,8 +25,15 @@ fallback_version = "0.0.0"
 [tool.hatch.build.targets.wheel]
 packages = ["anki_tools"]
 
+# Ship the generated man page so --install-man-pages can copy it from the
+# install prefix. pip installs it under share/man/man1, which is on manpath
+# for a prefix or --user install.
+[tool.hatch.build.targets.wheel.shared-data]
+"man/anki-tools.1" = "share/man/man1/anki-tools.1"
+
 [dependency-groups]
 dev = [
+    "argparse-manpage>=4.8",
     "pytest>=9.2.0",
     "pytest-cov>=7.1.0",
     "ruff>=0.17.3",

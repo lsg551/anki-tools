@@ -40,6 +40,12 @@ def test_subcommand_metavar() -> None:
     assert "{dump" not in help_text
 
 
+def test_manpage_parser_has_no_version() -> None:
+    parser = build_parser(with_version=False)
+    assert "--version" not in parser.format_help()
+    assert "--version" not in parser.format_usage()
+
+
 def test_invalid_package_exits_one(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
