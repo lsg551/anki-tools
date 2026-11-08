@@ -1,5 +1,7 @@
 """The ``diff`` subcommand."""
 
+from __future__ import annotations
+
 import argparse
 import difflib
 import os

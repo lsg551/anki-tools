@@ -1,5 +1,7 @@
 """The ``build`` subcommand reads a dump and writes an ``.apkg``."""
 
+from __future__ import annotations
+
 import argparse
 import sys
 from pathlib import Path
