@@ -1,0 +1,82 @@
+[project]
+name = "anki-tools"
+description = "Make Anki deck packages (.apkg) diffable"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Luis Schulte", email = "git@luisschulte.com" }]
+requires-python = ">=3.13"
+dependencies = ["anki==26.9.3", "msgspec==0.22.0"]
+dynamic = ["version"]
+
+[project.scripts]
+anki-tools = "anki_tools.cmd.cli:main"
+
+[build-system]
+requires = ["hatchling", "hatch-vcs"]
+build-backend = "hatchling.build"
+
+[tool.hatch.version]
+source = "vcs"
+
+[tool.hatch.version.raw-options]
+fallback_version = "0.0.0"
+
+[tool.hatch.build.targets.wheel]
+packages = ["anki_tools"]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.2.0",
+    "pytest-cov>=7.1.0",
+    "ruff>=0.17.3",
+    "ty>=0.0.95",
+]
+
+[tool.ruff]
+line-length = 88
+target-version = "py313"
+
+[tool.ruff.lint]
+select = [
+    "A",     # builtins shadowing
+    "ANN",   # annotations
+    "B",     # bugbear
+    "C4",    # comprehensions
+    "D",     # docstrings
+    "E",     # pycodestyle
+    "F",     # pyflakes
+    "I",     # isort
+    "N",     # pep8-naming
+    "PTH",   # pathlib
+    "RET",   # return
+    "RUF",   # ruff
+    "SIM",   # simplify
+    "UP",    # pyupgrade
+]
+ignore = ["D203", "D213"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["D"]
+
+[tool.ty.rules]
+all = "error"
+
+[tool.ty.environment]
+python-version = "3.13"
+
+[tool.ty.src]
+include = ["anki_tools", "tests"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "--strict-markers --strict-config --cov=anki_tools --cov-report=term-missing"
+
+[tool.coverage.run]
+source = ["anki_tools"]
+
+[tool.coverage.report]
+show_missing = true
