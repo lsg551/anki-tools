@@ -9,7 +9,7 @@ import threading
 from collections.abc import Sequence
 from importlib.metadata import version
 from types import FrameType
-from typing import Any, NoReturn, override
+from typing import Any, NoReturn, TextIO, override
 
 from anki.errors import AnkiException, Interrupted
 
@@ -49,7 +49,8 @@ class _Parser(argparse.ArgumentParser):
     """Argument parser whose help wraps to at most ``_MAX_HELP_WIDTH`` columns."""
 
     @override
-    def _get_formatter(self) -> argparse.HelpFormatter:
+    def _get_formatter(self, file: TextIO | None = None) -> argparse.HelpFormatter:
+        del file
         return _HelpFormatter(prog=self.prog)
 
 
