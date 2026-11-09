@@ -63,6 +63,10 @@ def install_man_page(
 
 def bundled_path() -> Path:
     """Return this install's bundled man page path, or where it would be."""
+    for scheme in ("posix_prefix", "posix_user"):
+        path = Path(sysconfig.get_path("data", scheme=scheme)) / _PREFIX_PATH
+        if path.is_file():
+            return path
     return Path(sysconfig.get_path("data")) / _PREFIX_PATH
 
 

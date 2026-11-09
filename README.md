@@ -123,6 +123,10 @@ Documentation comes in form of a single man page:
 man anki-tools
 ```
 
+The installer should put the man page on the `MANPATH`. If you installed the
+wheel manually, run `anki-tools --install-man-pages` (flag is hidden, but it's
+there). Re-run the installer after an upgrade to refresh the page.
+
 (`docs/` currently does NOT contain any user documentation,
 only for development.)
 

@@ -1,5 +1,6 @@
 """Tests for the man page installer."""
 
+import sysconfig
 from pathlib import Path
 
 import pytest
@@ -62,6 +63,21 @@ def test_bundled_path_is_under_the_prefix() -> None:
     page = manpage.bundled_path()
     assert page.name == MANPAGE_NAME
     assert page.is_absolute()
+
+
+def test_bundled_path_finds_the_user_scheme(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    page = _page(tmp_path)
+    system = tmp_path / "system"
+    user = tmp_path / "prefix"
+
+    def fake_get_path(key: str, scheme: str | None = None) -> str:
+        del key
+        return str(user if scheme == "posix_user" else system)
+
+    monkeypatch.setattr(sysconfig, "get_path", fake_get_path)
+    assert manpage.bundled_path() == page
 
 
 def test_install_when_source_is_the_target(tmp_path: Path) -> None:

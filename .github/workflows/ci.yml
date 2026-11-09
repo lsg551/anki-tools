@@ -28,6 +28,8 @@ jobs:
       - run: uv run ruff format --check .
       - run: uv run ty check
       - run: uv run python scripts/gen_manpage.py --check
+      - run: sh -n scripts/install.sh
+      - run: shellcheck --shell=sh scripts/install.sh
 
   test:
     strategy:
