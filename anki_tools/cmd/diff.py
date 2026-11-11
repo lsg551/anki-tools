@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import NamedTuple
 
 from anki_tools.cmd.options import add_export_options
-from anki_tools.lib import apkg, convert
+from anki_tools.lib import apkg, convert, reimport
 from anki_tools.lib import format as fmt
 from anki_tools.lib.errors import AnkiToolsError
 from anki_tools.lib.model import Dump, ExportOptions
@@ -70,6 +70,11 @@ def register[P: argparse.ArgumentParser](
         default=None,
         help="colourise text output (default: auto)",
     )
+    parser.add_argument(
+        "--no-warnings",
+        action="store_true",
+        help="hide the re-import warnings (errors are still printed)",
+    )
     parser.set_defaults(func=run)
 
 
@@ -104,6 +109,10 @@ def run(args: argparse.Namespace) -> int:
             tofile=args.new,
         )
     )
+    for level, text in reimport.messages(old.dump, new.dump, exclude=exclude):
+        if level == "warning" and args.no_warnings:
+            continue
+        print(f"anki-tools: {level}: {text}", file=sys.stderr)
     if not diff:
         return 0
     if args.format == "markdown":

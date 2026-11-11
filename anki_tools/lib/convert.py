@@ -1,5 +1,6 @@
 """Convert between a live collection and the canonical dump model."""
 
+import json
 from collections import Counter
 from collections.abc import Generator, Iterable, Mapping
 from contextlib import contextmanager
@@ -18,6 +19,7 @@ from anki.models import NotetypeDict, NotetypeId
 from anki.notes import NoteId
 from msgspec.structs import replace
 
+from anki_tools.lib import _patch_ids
 from anki_tools.lib.errors import AnkiToolsError, InvalidDumpError
 from anki_tools.lib.format import MediaSource
 from anki_tools.lib.model import (
@@ -37,6 +39,9 @@ from anki_tools.lib.model import (
     NotetypeTemplate,
 )
 from anki_tools.lib.utils import _db, _required
+
+# How `build` picks a preset id; see docs/decisions.md and the man page.
+PRESET_MODES = ("never", "always", "on-change")
 
 
 def _options(obj: Mapping[str, object], *named: str) -> dict[str, object]:
@@ -84,17 +89,21 @@ def to_dump(
 
 @contextmanager
 def from_dump(
-    dump: Dump, media_source: MediaSource | None = None
+    dump: Dump,
+    media_source: MediaSource | None = None,
+    *,
+    update_deck_presets: str = "never",
 ) -> Generator[Collection]:
     """Yield a temporary collection populated from *dump*.
 
     Media bytes come from *dump* itself, or from *media_source* when the dump
-    was read without them.
+    was read without them. *update_deck_presets* is passed to
+    ``_add_deck_configs``.
     """
     with TemporaryDirectory() as tmp:
         col = Collection(str(Path(tmp) / "collection.anki2"))
         try:
-            _populate(col, dump, media_source)
+            _populate(col, dump, media_source, update_deck_presets)
             yield col
         finally:
             col.close()
@@ -130,6 +139,7 @@ def _notetype(nt: NotetypeDict) -> Notetype:
     names = [str(field["name"]) for field in fields]
     sortf = int(nt["sortf"])
     return Notetype(
+        id=int(nt["id"]),
         name=nt["name"],
         kind=int(nt["type"]),
         css=nt["css"],
@@ -138,6 +148,7 @@ def _notetype(nt: NotetypeDict) -> Notetype:
         else (names[0] if names else ""),
         fields=tuple(
             NotetypeField(
+                id=int(field["id"]),
                 name=str(field["name"]),
                 options=_options(field, "name"),
             )
@@ -145,6 +156,7 @@ def _notetype(nt: NotetypeDict) -> Notetype:
         ),
         templates=tuple(
             NotetypeTemplate(
+                id=int(template["id"]),
                 name=template["name"],
                 qfmt=template["qfmt"],
                 afmt=template["afmt"],
@@ -228,7 +240,7 @@ def _deck_configs(
                 for key in sorted(conf)
                 if key not in CONFIG_IDENTITY_KEYS
             }
-            configs.append(DeckConfig(name=name, settings=settings))
+            configs.append(DeckConfig(id=int(conf["id"]), name=name, settings=settings))
     return configs
 
 
@@ -307,10 +319,15 @@ def _referenced_media(
     return names
 
 
-def _populate(col: Collection, dump: Dump, media_source: MediaSource | None) -> None:
+def _populate(
+    col: Collection,
+    dump: Dump,
+    media_source: MediaSource | None,
+    update_deck_presets: str,
+) -> None:
     """Populate *col* from *dump*."""
     notetype_ids = _add_notetypes(col, dump.notetypes)
-    config_ids = _add_deck_configs(col, dump.deck_configs)
+    config_ids = _add_deck_configs(col, dump.deck_configs, update_deck_presets)
     deck_ids = _add_decks(col, dump.decks, config_ids)
     _add_notes(col, dump.notes, notetype_ids, deck_ids)
     for item in dump.media:
@@ -348,10 +365,12 @@ def _add_notetypes(
         model.update(nt.options)
         for field in nt.fields:
             created = col.models.new_field(field.name)
+            created["id"] = field.id
             created.update(field.options)
             col.models.add_field(model, created)
         for template in nt.templates:
             tmpl = col.models.new_template(template.name)
+            tmpl["id"] = template.id
             tmpl["qfmt"] = template.qfmt
             tmpl["afmt"] = template.afmt
             tmpl.update(template.options)
@@ -365,25 +384,54 @@ def _add_notetypes(
                 f"would be renamed to '{model['name']}'; the dump is not "
                 "reproducible. Remove the duplicate name and dump again."
             )
-        ids[nt.name] = NotetypeId(added.id)
+        _patch_ids.reassign_notetype(col, NotetypeId(added.id), nt.id)
+        ids[nt.name] = NotetypeId(nt.id)
     return ids
 
 
 def _add_deck_configs(
-    col: Collection, configs: tuple[DeckConfig, ...]
+    col: Collection, configs: tuple[DeckConfig, ...], update: str
 ) -> dict[str, DeckConfigId]:
-    """Add the dump's presets and return their ids by name."""
+    """Add the dump's presets and return their ids by name.
+
+    *update* is the ``--update-deck-presets`` mode. A re-import can only insert
+    a preset, never update one, so the id decides whether a changed preset
+    reaches an importer.
+    """
     ids: dict[str, DeckConfigId] = {DEFAULT_CONFIG: DeckConfigId(1)}
+    taken = {int(conf_dict["id"]) for conf_dict in col.decks.all_config()}
     for conf in configs:
+        target = _preset_id(conf, update)
+        if target and target in taken:
+            raise AnkiToolsError(
+                f"preset id {target} already exists in the collection; "
+                "the dump is not reproducible"
+            )
         clone: DeckConfigDict = {
-            "id": 0,
+            "id": target,
             "name": conf.name,
             "mod": 0,
             "usn": 0,
             **conf.settings,
         }
-        ids[conf.name] = col.decks.add_config(conf.name, clone_from=clone)["id"]
+        col.decks.update_config(clone)
+        ids[conf.name] = DeckConfigId(clone["id"])
+        taken.add(int(clone["id"]))
     return ids
+
+
+def _preset_id(conf: DeckConfig, update: str) -> int:
+    """Return the preset id to build *conf* with, per the update mode."""
+    if update == "always":
+        return 0
+    if update != "on-change":
+        return conf.id
+    payload = json.dumps(
+        {"name": conf.name, "settings": conf.settings},
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode()
+    return max(int.from_bytes(sha256(payload).digest()[:8], "big") >> 1, 2)
 
 
 def _add_decks(

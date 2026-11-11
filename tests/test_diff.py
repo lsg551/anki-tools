@@ -8,9 +8,9 @@ from msgspec.structs import replace
 
 from anki_tools.cmd.cli import main
 from anki_tools.cmd.diff import _BOLD, _GREEN, _RED, _colorize, _use_color
-from anki_tools.lib import apkg, convert
+from anki_tools.lib import apkg, convert, reimport
 from anki_tools.lib import format as fmt
-from anki_tools.lib.model import Dump
+from anki_tools.lib.model import Dump, NotetypeField
 
 
 def _dump(
@@ -203,3 +203,199 @@ def test_colorize_does_not_bold_content_lines() -> None:
     assert lines[1].startswith(_BOLD)
     assert lines[3].startswith(_RED)
     assert lines[4].startswith(_GREEN)
+
+
+def _with_extra_field(dump: Dump) -> Dump:
+    """Return *dump* with an extra field on every note type and note."""
+    return _with_field(dump, "Extra", 999)
+
+
+def _with_field(dump: Dump, name: str, field_id: int) -> Dump:
+    """Return *dump* with an extra field *name* on every note type and note."""
+    return replace(
+        dump,
+        notetypes=tuple(
+            replace(nt, fields=(*nt.fields, NotetypeField(id=field_id, name=name)))
+            for nt in dump.notetypes
+        ),
+        notes=tuple(
+            replace(note, fields={**note.fields, name: "x"}) for note in dump.notes
+        ),
+    )
+
+
+def _shift_ids(dump: Dump, delta: int) -> Dump:
+    """Return *dump* with every note type, field and template id shifted."""
+    return replace(
+        dump,
+        notetypes=tuple(
+            replace(
+                nt,
+                id=nt.id + delta,
+                fields=tuple(
+                    replace(field, id=field.id + delta) for field in nt.fields
+                ),
+                templates=tuple(
+                    replace(template, id=template.id + delta)
+                    for template in nt.templates
+                ),
+            )
+            for nt in dump.notetypes
+        ),
+    )
+
+
+def test_reimport_warns_about_added_field(apkg_path: Path) -> None:
+    dump = _dump(apkg_path)
+    level, text = reimport.messages(dump, _with_extra_field(dump))[0]
+    assert level == "warning"
+    assert "gained field 'Extra'" in text
+    assert "merge note types" in text
+
+
+def test_reimport_errors_about_removed_field(apkg_path: Path) -> None:
+    dump = _with_extra_field(_dump(apkg_path))
+    level, text = reimport.messages(dump, _dump(apkg_path))[0]
+    assert level == "error"
+    assert "lost field 'Extra'" in text
+    assert reimport.REMOVED in text
+
+
+def test_reimport_errors_about_reordered_fields(apkg_path: Path) -> None:
+    dump = _with_extra_field(_dump(apkg_path))
+    reversed_dump = replace(
+        dump,
+        notetypes=tuple(
+            replace(nt, fields=tuple(reversed(nt.fields))) for nt in dump.notetypes
+        ),
+    )
+    level, text = reimport.messages(dump, reversed_dump)[0]
+    assert level == "error"
+    assert "reordered its fields" in text
+    assert reimport.REORDERED in text
+
+
+def test_reimport_pairs_members_by_name_when_ids_differ(apkg_path: Path) -> None:
+    dump = _dump(apkg_path)
+    foreign = _shift_ids(dump, 1)
+    assert reimport.messages(dump, foreign) == []
+    assert reimport.messages(dump, _with_field(foreign, "Added", 1000)) != []
+
+
+def test_reimport_errors_about_moved_card(apkg_path: Path) -> None:
+    dump = _dump(apkg_path)
+    moved = replace(
+        dump,
+        notes=tuple(
+            replace(
+                note,
+                cards=tuple(
+                    replace(card, deck="Elsewhere")
+                    if card.deck == "Test Deck"
+                    else card
+                    for card in note.cards
+                ),
+            )
+            for note in dump.notes
+        ),
+    )
+    messages = reimport.messages(dump, moved)
+    assert any(
+        level == "error" and "cannot move a card" in text for level, text in messages
+    )
+    assert any(reimport.MOVED_CARD in text for _, text in messages)
+
+
+def test_reimport_errors_about_changed_preset(apkg_path: Path) -> None:
+    dump = _dump(apkg_path)
+    changed = replace(
+        dump,
+        deck_configs=tuple(
+            replace(
+                conf,
+                settings={
+                    **conf.settings,
+                    "new": {**conf.settings["new"], "perDay": 99},
+                },
+            )
+            for conf in dump.deck_configs
+        ),
+    )
+    messages = reimport.messages(dump, changed)
+    assert any(
+        level == "error" and "settings changed" in text for level, text in messages
+    )
+    assert any(reimport.PRESET in text for _, text in messages)
+
+
+def test_reimport_is_silent_for_an_unchanged_dump(apkg_path: Path) -> None:
+    dump = _dump(apkg_path)
+    assert reimport.messages(dump, dump) == []
+
+
+def test_reimport_skips_an_excluded_section(apkg_path: Path) -> None:
+    dump = _dump(apkg_path)
+    changed = replace(
+        dump,
+        deck_configs=tuple(
+            replace(
+                conf,
+                settings={
+                    **conf.settings,
+                    "new": {**conf.settings["new"], "perDay": 99},
+                },
+            )
+            for conf in dump.deck_configs
+        ),
+    )
+    assert reimport.messages(dump, changed) != []
+    assert reimport.messages(dump, changed, exclude=frozenset({"deck_configs"})) == []
+
+
+def test_reimport_ignores_new_notetypes_and_notes(apkg_path: Path) -> None:
+    dump = _dump(apkg_path)
+    added = replace(
+        dump,
+        notetypes=(*dump.notetypes, replace(dump.notetypes[0], id=1234, name="Neu")),
+        notes=(*dump.notes, replace(dump.notes[0], guid="neu")),
+    )
+    assert reimport.messages(dump, added) == []
+
+
+def test_reimport_labels_a_moved_card_without_fields(apkg_path: Path) -> None:
+    dump = _dump(apkg_path)
+    note = dump.notes[0]
+    blank = replace(note, fields=dict.fromkeys(note.fields, ""))
+    moved = replace(
+        blank, cards=tuple(replace(card, deck="Elsewhere") for card in blank.cards)
+    )
+    messages = reimport.messages(dump, replace(dump, notes=(moved, *dump.notes[1:])))
+    assert any(note.guid in text for _, text in messages)
+
+
+def test_diff_prints_reimport_warning_to_stderr(
+    apkg_path: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    dump = _dump(apkg_path)
+    old = _write(dump, tmp_path / "old")
+    new = _write(_with_extra_field(dump), tmp_path / "new")
+    assert main(["diff", str(old), str(new)]) == 1
+    captured = capsys.readouterr()
+    assert "warning: note type 'Fixture' gained field 'Extra'" in captured.err
+    assert "gained field" not in captured.out
+
+
+def test_diff_no_warnings_hides_warnings_but_keeps_errors(
+    apkg_path: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    dump = _dump(apkg_path)
+    old = _write(_with_field(dump, "Extra", 999), tmp_path / "old")
+    new = _write(_with_field(dump, "Added", 1000), tmp_path / "new")
+    assert main(["diff", str(old), str(new)]) == 1
+    both = capsys.readouterr().err
+    assert "gained field 'Added'" in both
+    assert "lost field 'Extra'" in both
+    assert main(["diff", "--no-warnings", str(old), str(new)]) == 1
+    quiet = capsys.readouterr().err
+    assert "gained field" not in quiet
+    assert "lost field 'Extra'" in quiet

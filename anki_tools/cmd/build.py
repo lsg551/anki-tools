@@ -32,6 +32,15 @@ def register[P: argparse.ArgumentParser](
         choices=fmt.suffixes(),
         help="input format (default: inferred from the source path)",
     )
+    parser.add_argument(
+        "--update-deck-presets",
+        choices=convert.PRESET_MODES,
+        default="never",
+        help=(
+            "how the package picks deck preset ids: never keeps the dump's id "
+            "(default), always mints a new one, on-change follows the content"
+        ),
+    )
     parser.set_defaults(func=run)
 
 
@@ -52,18 +61,23 @@ def run(args: argparse.Namespace) -> int:
     media = None if from_stdin else codec.media_source(Path(args.source))
     if args.output == "-":
         with fmt.stream_to_stdout() as path:
-            _build(dump, path, media)
+            _build(dump, path, media, args.update_deck_presets)
         return 0
     with fmt.staged(Path(args.output)) as path:
-        _build(dump, path, media)
+        _build(dump, path, media, args.update_deck_presets)
     return 0
 
 
-def _build(dump: Dump, path: Path, media: fmt.MediaSource | None = None) -> None:
+def _build(
+    dump: Dump,
+    path: Path,
+    media: fmt.MediaSource | None = None,
+    update_deck_presets: str = "never",
+) -> None:
     """Build *dump* into an .apkg at *path*, reading media from *media*."""
     # The media tuple is the source of truth; with_media is only metadata, and
     # format._check_export_options has already refused a dump that disagrees.
-    with convert.from_dump(dump, media) as col:
+    with convert.from_dump(dump, media, update_deck_presets=update_deck_presets) as col:
         apkg.export(
             col,
             path,

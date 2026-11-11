@@ -70,6 +70,7 @@ DEFAULT_CONFIG = "Default"
 class NotetypeField(msgspec.Struct, frozen=True):
     """A note field and the options Anki stores for it."""
 
+    id: int
     name: str
     options: dict[str, Any] = msgspec.field(default_factory=dict)
 
@@ -77,6 +78,7 @@ class NotetypeField(msgspec.Struct, frozen=True):
 class NotetypeTemplate(msgspec.Struct, frozen=True):
     """A single card template of a note type."""
 
+    id: int
     name: str
     qfmt: str
     afmt: str
@@ -86,6 +88,7 @@ class NotetypeTemplate(msgspec.Struct, frozen=True):
 class Notetype(msgspec.Struct, frozen=True):
     """A note type with its fields and templates."""
 
+    id: int
     name: str
     kind: int
     css: str
@@ -100,6 +103,7 @@ class Notetype(msgspec.Struct, frozen=True):
 class DeckConfig(msgspec.Struct, frozen=True):
     """A deck preset (scheduling options)."""
 
+    id: int
     name: str
     settings: dict[str, Any]
 

@@ -7,11 +7,17 @@ from pathlib import Path
 from typing import override
 
 import pytest
-from anki.collection import Collection, ExportAnkiPackageOptions
+from anki.collection import (
+    Collection,
+    ExportAnkiPackageOptions,
+    ImportAnkiPackageOptions,
+    ImportAnkiPackageRequest,
+)
+from anki.models import NotetypeId
 from msgspec.structs import replace
 
 from anki_tools.cmd.cli import main
-from anki_tools.lib import apkg, convert
+from anki_tools.lib import _patch_ids, apkg, convert
 from anki_tools.lib import format as fmt
 from anki_tools.lib.errors import AnkiToolsError, InvalidDumpError, UnknownFormatError
 from anki_tools.lib.model import (
@@ -71,6 +77,194 @@ def test_roundtrip_is_lossless(apkg_path: Path, tmp_path: Path) -> None:
     rebuilt = tmp_path / "rebuilt.apkg"
     _rebuild(dump, rebuilt)
     assert _dump(rebuilt) == dump
+
+
+def test_dump_records_notetype_ids(apkg_path: Path, tmp_path: Path) -> None:
+    """A dump carries Anki's note type ids so build can reproduce them."""
+    out = tmp_path / "dump"
+    assert main(["dump", str(apkg_path), "-o", str(out), "--with-deck-configs"]) == 0
+    records = json.loads((out / "notetypes.json").read_text())
+    dumped = {record["name"]: record["id"] for record in records}
+    with apkg.load(apkg_path) as col:
+        source = {nt["name"]: nt["id"] for nt in col.models.all()}
+    assert {name: source[name] for name in dumped} == dumped
+
+
+def test_build_reproduces_notetype_ids(apkg_path: Path, tmp_path: Path) -> None:
+    """build reproduces the dump's note type ids instead of minting new ones."""
+    dump = _dump(apkg_path)
+    rebuilt = tmp_path / "rebuilt.apkg"
+    _rebuild(dump, rebuilt)
+    with apkg.load(rebuilt) as col:
+        built = {nt["name"]: nt["id"] for nt in col.models.all()}
+    expected = {nt.name: nt.id for nt in dump.notetypes}
+    assert {name: built[name] for name in expected} == expected
+
+
+def test_reimport_updates_instead_of_duplicating(
+    apkg_path: Path, tmp_path: Path
+) -> None:
+    """A rebuild imports over an earlier one in place, with no `+` note types."""
+    out = tmp_path / "dump"
+    assert main(["dump", str(apkg_path), "-o", str(out), "--with-deck-configs"]) == 0
+    packages = []
+    for name in ("first.apkg", "second.apkg"):
+        package = tmp_path / name
+        assert main(["build", str(out), "-o", str(package)]) == 0
+        packages.append(package)
+
+    col = Collection(str(tmp_path / "collection.anki2"))
+    try:
+        for package in packages:
+            col.import_anki_package(
+                ImportAnkiPackageRequest(
+                    package_path=str(package),
+                    options=ImportAnkiPackageOptions(
+                        with_scheduling=False, with_deck_configs=True
+                    ),
+                )
+            )
+        names = [nt["name"] for nt in col.models.all()]
+        note_count = len(col.find_notes(""))
+    finally:
+        col.close()
+    assert [name for name in names if name.endswith("+")] == []
+    assert note_count == 2
+
+
+def test_dump_records_field_and_template_ids(apkg_path: Path, tmp_path: Path) -> None:
+    """Field and template ids are carried too, so a rename matches by id."""
+    out = tmp_path / "dump"
+    assert main(["dump", str(apkg_path), "-o", str(out), "--with-deck-configs"]) == 0
+    records = {r["name"]: r for r in json.loads((out / "notetypes.json").read_text())}
+    with apkg.load(apkg_path) as col:
+        for nt in col.models.all():
+            record = records.get(nt["name"])
+            if record is None:
+                continue
+            assert [f["id"] for f in record["fields"]] == [f["id"] for f in nt["flds"]]
+            assert [t["id"] for t in record["templates"]] == [
+                t["id"] for t in nt["tmpls"]
+            ]
+
+
+def test_build_keeps_the_id_of_a_renamed_notetype(
+    apkg_path: Path, tmp_path: Path
+) -> None:
+    """A rename changes the name and keeps the id, so Anki updates in place."""
+    dump = _dump(apkg_path)
+    renamed = replace(
+        dump,
+        notetypes=tuple(replace(nt, name=f"{nt.name} (neu)") for nt in dump.notetypes),
+        notes=tuple(
+            replace(note, notetype=f"{note.notetype} (neu)") for note in dump.notes
+        ),
+    )
+    out = tmp_path / "dump"
+    fmt.codec_for("jsonl").write(renamed, out)
+    rebuilt = tmp_path / "rebuilt.apkg"
+    assert main(["build", str(out), "-o", str(rebuilt)]) == 0
+    with apkg.load(rebuilt) as col:
+        after = {nt["name"]: nt["id"] for nt in col.models.all()}
+    assert [after[f"{nt.name} (neu)"] for nt in dump.notetypes] == [
+        nt.id for nt in dump.notetypes
+    ]
+
+
+def test_reassign_notetype_noops_on_equal_ids_and_refuses_a_collision(
+    tmp_path: Path,
+) -> None:
+    """The patch does nothing when the ids match and refuses a taken id."""
+    col = Collection(str(tmp_path / "collection.anki2"))
+    try:
+        for name in ("A", "B"):
+            model = col.models.new(name)
+            col.models.add_field(model, col.models.new_field("F"))
+            template = col.models.new_template("C1")
+            template["qfmt"] = "{{F}}"
+            template["afmt"] = "{{F}}"
+            col.models.add_template(model, template)
+            col.models.add(model)
+        first = col.models.by_name("A")
+        second = col.models.by_name("B")
+        assert first is not None
+        assert second is not None
+
+        _patch_ids.reassign_notetype(col, NotetypeId(first["id"]), first["id"])
+        after = col.models.by_name("A")
+        assert after is not None
+        assert after["id"] == first["id"]
+
+        with pytest.raises(AnkiToolsError, match="already exists"):
+            _patch_ids.reassign_notetype(col, NotetypeId(first["id"]), second["id"])
+    finally:
+        col.close()
+
+
+def _rebuild_mode(dump: Dump, path: Path, mode: str) -> None:
+    """Build *dump* with the given ``--update-deck-presets`` mode."""
+    with convert.from_dump(dump, update_deck_presets=mode) as col:
+        apkg.export(
+            col,
+            path,
+            with_scheduling=False,
+            with_deck_configs=True,
+            with_media=True,
+        )
+
+
+def _preset_ids(path: Path) -> dict[str, int]:
+    """Return the preset ids in *path* by name."""
+    with apkg.load(path) as col:
+        return {conf["name"]: conf["id"] for conf in col.decks.all_config()}
+
+
+def test_build_keeps_deck_preset_ids_by_default(
+    apkg_path: Path, tmp_path: Path
+) -> None:
+    """``never`` reproduces the dump's preset ids, so nothing duplicates."""
+    dump = _dump(apkg_path)
+    rebuilt = tmp_path / "rebuilt.apkg"
+    _rebuild(dump, rebuilt)
+    expected = {conf.name: conf.id for conf in dump.deck_configs}
+    built = _preset_ids(rebuilt)
+    assert {name: built[name] for name in expected} == expected
+
+
+def test_build_can_mint_new_deck_preset_ids(apkg_path: Path, tmp_path: Path) -> None:
+    """``always`` gives every preset a fresh id, so a change reaches importers."""
+    dump = _dump(apkg_path)
+    rebuilt = tmp_path / "rebuilt.apkg"
+    _rebuild_mode(dump, rebuilt, "always")
+    expected = {conf.name: conf.id for conf in dump.deck_configs}
+    built = _preset_ids(rebuilt)
+    assert all(built[name] != expected[name] for name in expected)
+
+
+def test_build_derives_deck_preset_ids_from_content(
+    apkg_path: Path, tmp_path: Path
+) -> None:
+    """``on-change`` is stable, so an unchanged preset does not duplicate."""
+    dump = _dump(apkg_path)
+    first = tmp_path / "first.apkg"
+    second = tmp_path / "second.apkg"
+    _rebuild_mode(dump, first, "on-change")
+    _rebuild_mode(dump, second, "on-change")
+    assert _preset_ids(first) == _preset_ids(second)
+
+
+def test_build_rejects_a_preset_id_that_already_exists(
+    apkg_path: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A dump preset that claims the Default id cannot be reproduced."""
+    dump = _dump(apkg_path)
+    collided = replace(
+        dump, deck_configs=tuple(replace(conf, id=1) for conf in dump.deck_configs)
+    )
+    out = tmp_path / "dump"
+    fmt.codec_for("jsonl").write(collided, out)
+    assert main(["build", str(out), "-o", str(tmp_path / "out.apkg")]) == 1
+    assert "already exists" in capsys.readouterr().err
 
 
 def test_dump_excludes_implicit_default(apkg_path: Path) -> None:
@@ -375,6 +569,7 @@ def _one_note_dump(
 ) -> Dump:
     """A one-note dump for a note type with *fields* and *templates*."""
     notetype = Notetype(
+        id=1,
         name="T",
         kind=0,
         css="",
@@ -398,8 +593,8 @@ def _minimal_dump(note: Note) -> Dump:
     """A one-note dump with a two-field note type."""
     return _one_note_dump(
         note,
-        (NotetypeField("Alpha"), NotetypeField("Beta")),
-        (NotetypeTemplate(name="C1", qfmt="{{Alpha}}", afmt="{{Alpha}}"),),
+        (NotetypeField(id=1, name="Alpha"), NotetypeField(id=2, name="Beta")),
+        (NotetypeTemplate(id=1, name="C1", qfmt="{{Alpha}}", afmt="{{Alpha}}"),),
     )
 
 
@@ -456,10 +651,10 @@ def _split_dump(note: Note) -> Dump:
     """A one-note dump whose note type has two templates."""
     return _one_note_dump(
         note,
-        (NotetypeField("Alpha"),),
+        (NotetypeField(id=1, name="Alpha"),),
         (
-            NotetypeTemplate(name="C1", qfmt="{{Alpha}}", afmt="{{Alpha}}"),
-            NotetypeTemplate(name="C2", qfmt="{{Alpha}} rev", afmt="{{Alpha}}"),
+            NotetypeTemplate(id=1, name="C1", qfmt="{{Alpha}}", afmt="{{Alpha}}"),
+            NotetypeTemplate(id=2, name="C2", qfmt="{{Alpha}} rev", afmt="{{Alpha}}"),
         ),
     )
 
@@ -590,8 +785,8 @@ def test_orphan_note_count() -> None:
     without = Note(guid="h", notetype="T", fields={"Alpha": "b"}, tags=())
     dump = _one_note_dump(
         with_cards,
-        (NotetypeField("Alpha"),),
-        (NotetypeTemplate(name="C1", qfmt="{{Alpha}}", afmt="{{Alpha}}"),),
+        (NotetypeField(id=1, name="Alpha"),),
+        (NotetypeTemplate(id=1, name="C1", qfmt="{{Alpha}}", afmt="{{Alpha}}"),),
     )
     assert convert.orphan_note_count(replace(dump, notes=(with_cards, without))) == 1
 
