@@ -55,6 +55,30 @@ def test_change_exits_one(
     assert "-@note" in capsys.readouterr().out
 
 
+def test_diff_prints_no_context_lines(
+    apkg_path: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    dump = _dump(apkg_path)
+    full = _write(dump, tmp_path / "full")
+    changed = _write(_with_changed_last_note(dump), tmp_path / "changed")
+    assert main(["diff", str(full), str(changed)]) == 1
+    lines = capsys.readouterr().out.splitlines()
+    assert len(lines) == 5
+    assert lines[2].startswith("@@ ")
+    assert lines[3].startswith("-@note")
+    assert lines[4].startswith("+@note")
+
+
+def test_diff_context_adds_lines(
+    apkg_path: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    dump = _dump(apkg_path)
+    full = _write(dump, tmp_path / "full")
+    changed = _write(_with_changed_last_note(dump), tmp_path / "changed")
+    assert main(["diff", str(full), str(changed), "-U", "3"]) == 1
+    assert dump.notes[0].guid in capsys.readouterr().out
+
+
 def test_markdown_is_fenced(
     apkg_path: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -221,6 +245,13 @@ def _with_field(dump: Dump, name: str, field_id: int) -> Dump:
         notes=tuple(
             replace(note, fields={**note.fields, name: "x"}) for note in dump.notes
         ),
+    )
+
+
+def _with_changed_last_note(dump: Dump) -> Dump:
+    """Return *dump* with the last note's tags changed, leaving neighbours."""
+    return replace(
+        dump, notes=(*dump.notes[:-1], replace(dump.notes[-1], tags=("changed",)))
     )
 
 

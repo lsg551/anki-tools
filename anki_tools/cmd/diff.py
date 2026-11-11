@@ -23,6 +23,14 @@ _GREEN = "\033[32m"
 _RED = "\033[31m"
 
 
+def _context(value: str) -> int:
+    """Parse a ``--context`` count, refusing a negative value."""
+    number = int(value)
+    if number < 0:
+        raise argparse.ArgumentTypeError("must be zero or more")
+    return number
+
+
 def register[P: argparse.ArgumentParser](
     subparsers: argparse._SubParsersAction[P],
 ) -> None:
@@ -39,7 +47,8 @@ def register[P: argparse.ArgumentParser](
             "report scope and preset differences as content changes. The "
             "export options only affect how a package is read; -e/--exclude "
             "drops a section from the comparison itself and works for any "
-            "input."
+            "input. Only changed lines are shown by default; -U/--context "
+            "adds lines around each change."
         ),
     )
     parser.add_argument("old", help='baseline package, dump or "-"')
@@ -62,6 +71,14 @@ def register[P: argparse.ArgumentParser](
         default=[],
         metavar="SECTION",
         help=f"section to drop from the diff (repeatable: {', '.join(fmt.SECTIONS)})",
+    )
+    parser.add_argument(
+        "-U",
+        "--context",
+        type=_context,
+        default=0,
+        metavar="N",
+        help="lines of context around each change (default: 0)",
     )
     add_export_options(parser)
     parser.add_argument(
@@ -107,6 +124,7 @@ def run(args: argparse.Namespace) -> int:
             fmt.canonical_text(new.dump, exclude=exclude).splitlines(keepends=True),
             fromfile=args.old,
             tofile=args.new,
+            n=args.context,
         )
     )
     for level, text in reimport.messages(old.dump, new.dump, exclude=exclude):
