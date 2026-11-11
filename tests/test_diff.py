@@ -8,7 +8,7 @@ from msgspec.structs import replace
 
 from anki_tools.cmd.cli import main
 from anki_tools.cmd.diff import _BOLD, _GREEN, _RED, _colorize, _use_color
-from anki_tools.lib import apkg, convert, reimport
+from anki_tools.lib import apkg, convert, reimport, stats
 from anki_tools.lib import format as fmt
 from anki_tools.lib.model import Dump, NotetypeField
 
@@ -77,6 +77,89 @@ def test_diff_context_adds_lines(
     changed = _write(_with_changed_last_note(dump), tmp_path / "changed")
     assert main(["diff", str(full), str(changed), "-U", "3"]) == 1
     assert dump.notes[0].guid in capsys.readouterr().out
+
+
+def _row(summary: stats.Summary, name: str) -> tuple[int, int, int]:
+    """Return the added, removed and changed count of section *name*."""
+    return next((a, r, c) for section, a, r, c in summary.rows if section == name)
+
+
+def test_summary_counts_changes_by_identity(apkg_path: Path) -> None:
+    dump = _dump(apkg_path)
+    assert _row(stats.summary(dump, dump, []), "notes") == (0, 0, 0)
+    changed = stats.summary(dump, _with_changed_last_note(dump), [])
+    assert _row(changed, "notes") == (0, 0, 1)
+    assert _row(changed, "notetypes") == (0, 0, 0)
+    added = replace(dump, notes=(*dump.notes, replace(dump.notes[0], guid="neu")))
+    assert _row(stats.summary(dump, added, []), "notes") == (1, 0, 0)
+    removed = replace(dump, notes=dump.notes[:1])
+    assert _row(stats.summary(dump, removed, []), "notes") == (0, 1, 0)
+
+
+def test_summary_skips_an_excluded_section(apkg_path: Path) -> None:
+    dump = _dump(apkg_path)
+    summary = stats.summary(dump, dump, [], exclude=frozenset({"notes"}))
+    assert "notes" not in [name for name, *_ in summary.rows]
+
+
+def test_summary_counts_notices_by_level(apkg_path: Path) -> None:
+    dump = _dump(apkg_path)
+    messages = [("warning", "a"), ("error", "b"), ("error", "c")]
+    summary = stats.summary(dump, dump, messages)
+    assert summary.warnings == 1
+    assert summary.errors == 2
+
+
+def test_summary_text_has_no_borders(apkg_path: Path) -> None:
+    dump = _dump(apkg_path)
+    text = stats.render(stats.summary(dump, dump, []), markdown=False)
+    assert "|" not in text
+    assert "notetypes" in text
+    assert "warnings" in text
+
+
+def test_stat_appends_a_summary(
+    apkg_path: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    dump = _dump(apkg_path)
+    full = _write(dump, tmp_path / "full")
+    changed = _write(_with_changed_last_note(dump), tmp_path / "changed")
+    assert main(["diff", "--stat", str(full), str(changed)]) == 1
+    out = capsys.readouterr().out
+    assert "-@note" in out
+    assert "notetypes" in out
+
+
+def test_summary_prints_only_the_table(
+    apkg_path: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    dump = _dump(apkg_path)
+    full = _write(dump, tmp_path / "full")
+    changed = _write(_with_changed_last_note(dump), tmp_path / "changed")
+    assert main(["diff", "--summary", str(full), str(changed)]) == 1
+    out = capsys.readouterr().out
+    assert "@note" not in out
+    assert "notetypes" in out
+
+
+def test_summary_markdown_is_a_table(
+    apkg_path: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    dump = _dump(apkg_path)
+    full = _write(dump, tmp_path / "full")
+    changed = _write(_with_changed_last_note(dump), tmp_path / "changed")
+    assert main(["diff", "--summary", "-f", "markdown", str(full), str(changed)]) == 1
+    out = capsys.readouterr().out
+    assert out.startswith("| section | added | removed | changed |")
+    assert "| notes |" in out
+
+
+def test_summary_without_changes_exits_zero(
+    apkg_path: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    dump = _write(_dump(apkg_path), tmp_path / "d")
+    assert main(["diff", "--summary", str(dump), str(dump)]) == 0
+    assert "notetypes" in capsys.readouterr().out
 
 
 def test_markdown_is_fenced(

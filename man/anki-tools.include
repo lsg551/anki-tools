@@ -51,6 +51,11 @@ The export options only affect how a package is read. \fB\-e/\-\-exclude\fR
 drops a section from the comparison itself and works for any input, so
 \fB\-e media\fR is how you ignore media differences, including between two
 dumps. \fB\-\-no\-media\fR has no effect when both inputs are dumps.
+.PP
+\fB\-\-stat\fR adds a change summary after the diff and \fB\-\-summary\fR
+prints it alone. The table counts added, removed and changed entities per
+section, by identity rather than by diff line, and the re\-import notes by
+level.
 
 [EXAMPLES]
 .RS 4

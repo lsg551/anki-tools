@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import NamedTuple
 
 from anki_tools.cmd.options import add_export_options
-from anki_tools.lib import apkg, convert, reimport
+from anki_tools.lib import apkg, convert, reimport, stats
 from anki_tools.lib import format as fmt
 from anki_tools.lib.errors import AnkiToolsError
 from anki_tools.lib.model import Dump, ExportOptions
@@ -80,6 +80,16 @@ def register[P: argparse.ArgumentParser](
         metavar="N",
         help="lines of context around each change (default: 0)",
     )
+    parser.add_argument(
+        "--stat",
+        action="store_true",
+        help="print a change summary after the diff",
+    )
+    parser.add_argument(
+        "--summary",
+        action="store_true",
+        help="print only the change summary, without the diff",
+    )
     add_export_options(parser)
     parser.add_argument(
         "--color",
@@ -127,11 +137,23 @@ def run(args: argparse.Namespace) -> int:
             n=args.context,
         )
     )
-    for level, text in reimport.messages(old.dump, new.dump, exclude=exclude):
+    messages = reimport.messages(old.dump, new.dump, exclude=exclude)
+    for level, text in messages:
         if level == "warning" and args.no_warnings:
             continue
         print(f"anki-tools: {level}: {text}", file=sys.stderr)
+    table = ""
+    if args.stat or args.summary:
+        table = stats.render(
+            stats.summary(old.dump, new.dump, messages, exclude=exclude),
+            markdown=args.format == "markdown",
+        )
+    if args.summary:
+        _write(table, args.output)
+        return 1 if diff else 0
     if not diff:
+        if table:
+            _write(table, args.output)
         return 0
     if args.format == "markdown":
         text = f"```diff\n{diff}```\n"
@@ -139,7 +161,7 @@ def run(args: argparse.Namespace) -> int:
         text = _colorize(diff)
     else:
         text = diff
-    _write(text, args.output)
+    _write(text + ("\n" + table if table else ""), args.output)
     return 1
 
 

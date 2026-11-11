@@ -129,6 +129,14 @@ notes, media)
 lines of context around each change (default: 0)
 
 .TP
+\fB\-\-stat\fR
+print a change summary after the diff
+
+.TP
+\fB\-\-summary\fR
+print only the change summary, without the diff
+
+.TP
 \fB\-\-color\fR, \fB\-\-no\-color\fR
 colourise text output (default: auto)
 
@@ -216,6 +224,11 @@ The export options only affect how a package is read. \fB\-e/\-\-exclude\fR
 drops a section from the comparison itself and works for any input, so
 \fB\-e media\fR is how you ignore media differences, including between two
 dumps. \fB\-\-no\-media\fR has no effect when both inputs are dumps.
+.PP
+\fB\-\-stat\fR adds a change summary after the diff and \fB\-\-summary\fR
+prints it alone. The table counts added, removed and changed entities per
+section, by identity rather than by diff line, and the re\-import notes by
+level.
 .SH EXAMPLES
 .RS 4
 .nf
