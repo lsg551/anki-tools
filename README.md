@@ -130,6 +130,12 @@ there). Re-run the installer after an upgrade to refresh the page.
 (`docs/` currently does NOT contain any user documentation,
 only for development.)
 
+## Limitations
+
+There are limitations and caveats associated by using deck packages created by
+anki-tools. Please see the man page for `anki-tools(1)`
+(or [this doc](./man/anki-tools.include)).
+
 ## License
 
 MIT. See the [LICENSE](./LICENSE) file for details.
