@@ -16,6 +16,7 @@ REMOVED = "https://github.com/lsg551/anki-tools/issues/9"
 REORDERED = "https://github.com/lsg551/anki-tools/issues/10"
 MOVED_CARD = "https://github.com/lsg551/anki-tools/issues/7"
 PRESET = "https://github.com/lsg551/anki-tools/issues/8"
+NOTETYPE_ID = "https://github.com/lsg551/anki-tools/issues/5"
 
 
 def messages(
@@ -44,6 +45,15 @@ def _notetypes(old: Dump, new: Dump) -> list[tuple[str, str]]:
         prev = before.get(nt.name)
         if prev is None:
             continue
+        if prev.id != nt.id:
+            out.append(
+                (
+                    "error",
+                    f"note type '{nt.name}' has a different id; a re-import "
+                    f"adds a duplicate note type instead of updating it "
+                    f"({NOTETYPE_ID})",
+                )
+            )
         out += _members(nt.name, "field", prev.fields, nt.fields)
         out += _members(nt.name, "template", prev.templates, nt.templates)
     return out

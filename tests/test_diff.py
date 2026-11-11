@@ -306,11 +306,25 @@ def test_reimport_errors_about_reordered_fields(apkg_path: Path) -> None:
     assert reimport.REORDERED in text
 
 
+def test_reimport_errors_about_a_different_notetype_id(apkg_path: Path) -> None:
+    dump = _dump(apkg_path)
+    level, text = reimport.messages(dump, _shift_ids(dump, 1))[0]
+    assert level == "error"
+    assert "has a different id" in text
+    assert reimport.NOTETYPE_ID in text
+
+
 def test_reimport_pairs_members_by_name_when_ids_differ(apkg_path: Path) -> None:
     dump = _dump(apkg_path)
     foreign = _shift_ids(dump, 1)
-    assert reimport.messages(dump, foreign) == []
-    assert reimport.messages(dump, _with_field(foreign, "Added", 1000)) != []
+    messages = reimport.messages(dump, foreign)
+    assert not any(
+        "lost field" in text or "gained field" in text for _, text in messages
+    )
+    assert any(
+        "gained field 'Added'" in text
+        for _, text in reimport.messages(dump, _with_field(foreign, "Added", 1000))
+    )
 
 
 def test_reimport_errors_about_moved_card(apkg_path: Path) -> None:

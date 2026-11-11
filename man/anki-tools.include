@@ -69,9 +69,10 @@ anki\-tools inspect deck.apkg \-\-format json
 [IMPORT LIMITATIONS]
 Anki's package import decides what a re\-import carries, and dump and build
 cannot change that. \fBdiff\fR warns about the rows marked "no", naming the
-entity and linking a tracking issue. The notes go to standard error, so the
-diff on standard output is unaffected; \fB\-\-no\-warnings\fR hides the
-warnings and keeps the errors.
+entity and linking a tracking issue. It also reports a note type that shares a
+name but not an id, since a re\-import then adds a duplicate. The notes go to
+standard error, so the diff on standard output is unaffected;
+\fB\-\-no\-warnings\fR hides the warnings and keeps the errors.
 
 .TS
 tab(;);
